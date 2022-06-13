@@ -159,7 +159,7 @@ out:
 }
 
 static inline bool
-virtio_transport_skbs_can_merge(struct sk_buff *new, struct sk_buff *old)
+virtio_transport_skbs_can_merge(struct sk_buff *old, struct sk_buff *new)
 {
 	return (new->len < GOOD_COPY_LEN &&
 		skb_tailroom(old) >= new->len &&
