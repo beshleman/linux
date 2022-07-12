@@ -760,6 +760,8 @@ static void virtio_vsock_remove(struct virtio_device *vdev)
 	flush_work(&vsock->event_work);
 	flush_work(&vsock->send_pkt_work);
 
+	virtio_transport_exit(&virtio_transport);
+
 	mutex_unlock(&the_virtio_vsock_mutex);
 
 	kfree(vsock);
@@ -844,12 +846,18 @@ static int __init virtio_vsock_init(void)
 	if (ret)
 		goto out_wq;
 
-	ret = register_virtio_driver(&virtio_vsock_driver);
+	ret = virtio_transport_init(&virtio_transport, "virtio-vsock");
 	if (ret)
 		goto out_vci;
 
+	ret = register_virtio_driver(&virtio_vsock_driver);
+	if (ret)
+		goto out_transport;
+
 	return 0;
 
+out_transport:
+	virtio_transport_exit(&virtio_transport);
 out_vci:
 	vsock_core_unregister(&virtio_transport.transport);
 out_wq:
@@ -861,6 +869,7 @@ static void __exit virtio_vsock_exit(void)
 {
 	unregister_virtio_driver(&virtio_vsock_driver);
 	vsock_core_unregister(&virtio_transport.transport);
+	virtio_transport_exit(&virtio_transport);
 	destroy_workqueue(virtio_vsock_workqueue);
 }
 
