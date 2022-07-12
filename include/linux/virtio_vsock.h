@@ -91,9 +91,19 @@ struct virtio_transport {
 	/* This must be the first field */
 	struct vsock_transport transport;
 
+	/* Used almost exclusively for qdisc */
+	struct net_device *dev;
+
 	/* Takes ownership of the packet */
 	int (*send_pkt)(struct sk_buff *skb);
 };
+
+int
+virtio_transport_init(struct virtio_transport *t,
+		      const char *name);
+
+void
+virtio_transport_exit(struct virtio_transport *t);
 
 ssize_t
 virtio_transport_stream_dequeue(struct vsock_sock *vsk,
