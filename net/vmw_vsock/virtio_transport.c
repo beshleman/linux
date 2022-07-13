@@ -111,10 +111,15 @@ virtio_transport_send_pkt_work(struct work_struct *work)
 		int ret, in_sg = 0, out_sg = 0;
 		bool reply;
 
-		if (skb_queue_empty(&vsock->send_pkt_queue))
+		spin_lock_bh(&vsock->send_pkt_queue.lock);
+		if (skb_queue_empty_lockless(&vsock->send_pkt_queue)) {
+			spin_unlock_bh(&vsock->send_pkt_queue.lock);
 			break;
+		}
 
-		skb = skb_dequeue(&vsock->send_pkt_queue);
+		skb = __skb_dequeue(&vsock->send_pkt_queue);
+
+		spin_unlock_bh(&vsock->send_pkt_queue.lock);
 		virtio_transport_deliver_tap_pkt(skb);
 		reply = vsock_metadata(skb)->flags & VIRTIO_VSOCK_METADATA_FLAGS_REPLY;
 
@@ -130,7 +135,9 @@ virtio_transport_send_pkt_work(struct work_struct *work)
 		 * the vq
 		 */
 		if (ret < 0) {
-			skb_queue_head(&vsock->send_pkt_queue, skb);
+			spin_lock_bh(&vsock->send_pkt_queue.lock);
+			__skb_queue_head(&vsock->send_pkt_queue, skb);
+			spin_unlock_bh(&vsock->send_pkt_queue.lock);
 			break;
 		}
 
@@ -676,7 +683,9 @@ static void virtio_vsock_vqs_del(struct virtio_vsock *vsock)
 		kfree_skb(skb);
 	mutex_unlock(&vsock->tx_lock);
 
-	skb_queue_purge(&vsock->send_pkt_queue);
+	spin_lock_bh(&vsock->send_pkt_queue.lock);
+	__skb_queue_purge(&vsock->send_pkt_queue);
+	spin_unlock_bh(&vsock->send_pkt_queue.lock);
 
 	/* Delete virtqueues and flush outstanding callbacks if any */
 	vdev->config->del_vqs(vdev);
