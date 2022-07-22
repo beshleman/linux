@@ -247,17 +247,6 @@ static int virtio_transport_send_pkt(const struct virtio_transport *t, struct sk
 	if (unlikely(!t->dev || !(t->dev->flags & IFF_UP)))
 		return t->send_pkt(skb);
 
-	/*
-	 * To prevent the networking stack from freeing this skb before
-	 * start_xmit() is able to place it on the virtqueue, grab an
-	 * additional reference.
-	 *
-	 * Only when both the networking stack and kick handler function have
-	 * both decremented the refcount w/ kfree_skb() will the refcount reach
-	 * zero and will the skb be freed.
-	 */
-	skb_get(skb);
-
 	dev_hold(t->dev);
 	skb->dev = t->dev;
 	ret = dev_queue_xmit(skb);
