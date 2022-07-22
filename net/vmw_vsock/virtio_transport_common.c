@@ -30,8 +30,15 @@ struct virtio_transport_priv {
 
 static netdev_tx_t virtio_transport_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	struct virtio_transport *t = ((struct virtio_transport_priv *)netdev_priv(dev))->trans;
-	return likely(t->send_pkt(skb) == skb->len) ? NETDEV_TX_OK : NETDEV_TX_BUSY;
+	struct virtio_transport *t =
+		((struct virtio_transport_priv *)netdev_priv(dev))->trans;
+	int ret;
+
+	ret = t->send_pkt(skb);
+	if (unlikely(ret == -ENODEV))
+		return NETDEV_TX_BUSY;
+
+	return NETDEV_TX_OK;
 }
 
 const struct net_device_ops virtio_transport_netdev_ops = {
