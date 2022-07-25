@@ -148,8 +148,16 @@ virtio_transport_alloc_skb(struct virtio_vsock_pkt_info *info,
 		struct sock *sk;
 
 		sk = sk_vsock(info->vsk);
-		skb = sock_alloc_send_skb(sk, skb_len,
-					  msg_flags & MSG_DONTWAIT, errp);
+
+		/* If SO_SNDBUF has been set, use sock_alloc_send_skb. */
+		if (sk->sk_userlocks & SOCK_SNDBUF_LOCK) {
+			skb = sock_alloc_send_skb(sk, skb_len,
+						  msg_flags & MSG_DONTWAIT, errp);
+		} else {
+			skb = alloc_skb_with_frags(skb_len, 0, 0,
+						   errp, sk->sk_allocation);
+		}
+
 		if (skb) {
 			skb->priority = sk->sk_priority;
 		}

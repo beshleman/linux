@@ -1646,6 +1646,17 @@ static int vsock_connectible_setsockopt(struct socket *sock,
 		break;
 	}
 
+	case SO_SNDBUF: {
+		int sndbuf;
+		COPY_IN(sndbuf);
+		sndbuf = min_t(u32, sndbuf, sysctl_wmem_max);
+		sndbuf = min_t(int, sndbuf, INT_MAX / 2);
+		sk->sk_userlocks |= SOCK_SNDBUF_LOCK;
+		WRITE_ONCE(sk->sk_sndbuf,
+			   max_t(int, sndbuf * 2, SOCK_MIN_SNDBUF));
+		break;
+	}
+
 	default:
 		err = -ENOPROTOOPT;
 		break;
