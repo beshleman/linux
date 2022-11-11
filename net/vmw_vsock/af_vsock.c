@@ -455,7 +455,10 @@ int vsock_assign_transport(struct vsock_sock *vsk, struct vsock_sock *psk)
 
 	switch (sk->sk_type) {
 	case SOCK_DGRAM:
-		new_transport = transport_dgram;
+		if (vsock_use_local_transport(remote_cid))
+			new_transport = transport_local;
+		else
+			new_transport = transport_dgram;
 		break;
 	case SOCK_STREAM:
 	case SOCK_SEQPACKET:
@@ -1244,6 +1247,13 @@ static int vsock_dgram_connect(struct socket *sock,
 	lock_sock(sk);
 
 	err = vsock_auto_bind(vsk);
+	if (err)
+		goto out;
+
+	/* connect() may change the transport, e.g., connecting to VMADDR_CID_LOCAL. */
+	memcpy(&vsk->remote_addr, remote_addr, sizeof(vsk->remote_addr));
+
+	err = vsock_assign_transport(vsk, NULL);
 	if (err)
 		goto out;
 
