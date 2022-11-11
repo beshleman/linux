@@ -879,6 +879,53 @@ static void test_stream_poll_rcvlowat_client(const struct test_opts *opts)
 	close(fd);
 }
 
+static void test_dgram_loopback(const struct test_opts *opts)
+{
+	union {
+		struct sockaddr sa;
+		struct sockaddr_vm svm;
+	} addr = {
+		.svm = {
+			.svm_family = AF_VSOCK,
+			.svm_port = 1234,
+			.svm_cid = VMADDR_CID_LOCAL,
+		},
+	};
+	int len = sizeof(addr.sa);
+	int sendfd, recvfd;
+	int ret;
+
+	sendfd = socket(AF_VSOCK, SOCK_DGRAM, 0);
+	if (sendfd < 0) {
+		perror("bind");
+		exit(EXIT_FAILURE);
+	}
+
+	recvfd = socket(AF_VSOCK, SOCK_DGRAM, 0);
+	if (recvfd < 0) {
+		perror("bind");
+		exit(EXIT_FAILURE);
+	}
+
+	ret = bind(recvfd, &addr.sa, sizeof(addr.svm));
+	if (ret < 0) {
+		perror("bind");
+		exit(EXIT_FAILURE);
+	}
+
+	ret = connect(sendfd, &addr.sa, sizeof(addr.svm));
+	if (ret < 0) {
+		perror("connect");
+		exit(EXIT_FAILURE);
+	}
+
+	send_byte(sendfd, 1, 0);
+	recvfrom_byte(recvfd, &addr.sa, &len, 1, 0);
+
+	close(sendfd);
+	close(recvfd);
+}
+
 static struct test_case test_cases[] = {
 	{
 		.name = "SOCK_STREAM connection reset",
@@ -948,6 +995,10 @@ static struct test_case test_cases[] = {
 		.name = "SOCK_DGRAM multiple connections",
 		.run_client = test_dgram_multiconn_client,
 		.run_server = test_dgram_multiconn_server,
+	},
+	{
+		.name = "SOCK_DGRAM loopback",
+		.run_client = test_dgram_loopback,
 	},
 	{},
 };
