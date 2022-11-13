@@ -45,6 +45,11 @@ static inline void virtio_vsock_skb_clear_tap_delivered(struct sk_buff *skb)
 	skb->_skb_refdst &= ~VIRTIO_VSOCK_SKB_FLAGS_TAP_DELIVERED;
 }
 
+static inline void virtio_vsock_skb_clear_flags(struct sk_buff *skb)
+{
+	skb->_skb_refdst = 0UL;
+}
+
 static inline void virtio_vsock_skb_rx_put(struct sk_buff *skb)
 {
 	u32 len;
@@ -57,7 +62,7 @@ static inline void virtio_vsock_skb_rx_put(struct sk_buff *skb)
 
 static inline void virtio_vsock_kfree_skb(struct sk_buff *skb)
 {
-	skb->_skb_refdst = 0;
+	virtio_vsock_skb_clear_flags(skb);
 	kfree_skb(skb);
 }
 
@@ -76,7 +81,7 @@ static inline size_t virtio_vsock_skb_len(struct sk_buff *skb)
 
 static inline void virtio_vsock_consume_skb(struct sk_buff *skb)
 {
-	skb->_skb_refdst = 0;
+	virtio_vsock_skb_clear_flags(skb);
 	consume_skb(skb);
 }
 
