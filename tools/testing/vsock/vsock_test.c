@@ -24,6 +24,9 @@
 #include "control.h"
 #include "util.h"
 
+#define MAX_CONNECT_RETRIES 5
+#define CONNECT_DELAY 1
+
 static void test_stream_connection_reset(const struct test_opts *opts)
 {
 	union {
@@ -895,18 +898,21 @@ static void test_dgram_loopback(const struct test_opts *opts)
 	int sendfd, recvfd;
 	int ret;
 
+	printf("%s:%d\n", __func__, __LINE__);
 	sendfd = socket(AF_VSOCK, SOCK_DGRAM, 0);
 	if (sendfd < 0) {
-		perror("bind");
+		perror("socket");
 		exit(EXIT_FAILURE);
 	}
 
+	printf("%s:%d\n", __func__, __LINE__);
 	recvfd = socket(AF_VSOCK, SOCK_DGRAM, 0);
 	if (recvfd < 0) {
-		perror("bind");
+		perror("socket");
 		exit(EXIT_FAILURE);
 	}
 
+	printf("%s:%d\n", __func__, __LINE__);
 	ret = bind(recvfd, &addr.sa, sizeof(addr.svm));
 	if (ret < 0) {
 		perror("bind");
@@ -921,6 +927,59 @@ static void test_dgram_loopback(const struct test_opts *opts)
 
 	send_byte(sendfd, 1, 0);
 	recvfrom_byte(recvfd, &addr.sa, &len, 1, 0);
+
+	close(sendfd);
+	close(recvfd);
+}
+
+static void test_stream_loopback(const struct test_opts *opts)
+{
+	union {
+		struct sockaddr sa;
+		struct sockaddr_vm svm;
+	} addr = {
+		.svm = {
+			.svm_family = AF_VSOCK,
+			.svm_port = 1234,
+			.svm_cid = VMADDR_CID_LOCAL,
+		},
+	};
+	int sendfd, recvfd;
+	int ret;
+
+	sendfd = socket(AF_VSOCK, SOCK_STREAM, 0);
+	if (sendfd < 0) {
+		perror("socket");
+		exit(EXIT_FAILURE);
+	}
+
+	recvfd = socket(AF_VSOCK, SOCK_STREAM, 0);
+	if (recvfd < 0) {
+		perror("socket");
+		exit(EXIT_FAILURE);
+	}
+
+	ret = bind(recvfd, &addr.sa, sizeof(addr.svm));
+	if (ret < 0) {
+		perror("bind");
+		exit(EXIT_FAILURE);
+	}
+
+	ret = listen(recvfd, 1);
+	if (ret < 0) {
+		perror("listen");
+		exit(EXIT_FAILURE);
+	}
+
+	timeout_begin(TIMEOUT);
+	do {
+		ret = connect(sendfd, &addr.sa, sizeof(addr.svm));
+		timeout_check("connect");
+	} while (ret < 0 && errno == EINTR);
+	timeout_end();
+
+	send_byte(sendfd, 1, 0);
+	recv_byte(recvfd, 0, 0);
 
 	close(sendfd);
 	close(recvfd);
@@ -999,6 +1058,10 @@ static struct test_case test_cases[] = {
 	{
 		.name = "SOCK_DGRAM loopback",
 		.run_client = test_dgram_loopback,
+	},
+	{
+		.name = "SOCK_STREAM loopback",
+		.run_client = test_stream_loopback,
 	},
 	{},
 };

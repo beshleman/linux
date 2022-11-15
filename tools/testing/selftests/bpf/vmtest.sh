@@ -4,6 +4,13 @@
 set -u
 set -e
 
+# Arch-agnostic qemu flags
+QEMU_FLAGS=()
+
+if [[ -e /dev/vhost-vsock ]]; then
+	QEMU_FLAGS+=(-device vhost-vsock-pci,guest-cid=10)
+fi
+
 # This script currently only works for x86_64 and s390x, as
 # it is based on the VM image used by the BPF CI, which is
 # available only for these architectures.
