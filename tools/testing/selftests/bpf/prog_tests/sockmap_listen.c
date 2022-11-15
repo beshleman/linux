@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
+#include <linux/vm_sockets.h>
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
@@ -249,6 +250,16 @@ static void init_addr_loopback6(struct sockaddr_storage *ss, socklen_t *len)
 	*len = sizeof(*addr6);
 }
 
+static void init_addr_loopback_vsock(struct sockaddr_storage *ss, socklen_t *len)
+{
+	struct sockaddr_vm *addr = memset(ss, 0, sizeof(*ss));
+
+	addr->svm_family = AF_VSOCK;
+	addr->svm_port = VMADDR_PORT_ANY;
+	addr->svm_cid = VMADDR_CID_LOCAL;
+	*len = sizeof(*addr);
+}
+
 static void init_addr_loopback(int family, struct sockaddr_storage *ss,
 			       socklen_t *len)
 {
@@ -258,6 +269,9 @@ static void init_addr_loopback(int family, struct sockaddr_storage *ss,
 		return;
 	case AF_INET6:
 		init_addr_loopback6(ss, len);
+		return;
+	case AF_VSOCK:
+		init_addr_loopback_vsock(ss, len);
 		return;
 	default:
 		FAIL("unsupported address family %d", family);
@@ -1434,6 +1448,8 @@ static const char *family_str(sa_family_t family)
 		return "IPv6";
 	case AF_UNIX:
 		return "Unix";
+	case AF_VSOCK:
+		return "VSOCK";
 	default:
 		return "unknown";
 	}
@@ -1642,6 +1658,143 @@ static void test_unix_redir(struct test_sockmap_listen *skel, struct bpf_map *ma
 	if (!test__start_subtest(s))
 		return;
 	unix_skb_redir_to_connected(skel, map, sotype);
+}
+
+/* Returns two loop back sockets. */
+static int vsock_socketpair_dgram(int *sender, int *receiver, int port)
+{
+	struct sockaddr_vm addr = {0};
+	socklen_t len;
+	int c0, p0;
+	int err;
+
+	p0 = socket_loopback(AF_VSOCK, SOCK_DGRAM);
+	if (p0 < 0)
+		return p0;
+
+	len = sizeof(addr);
+	err = getpeername(p0, (struct sockaddr *)&addr, &len);
+	if (err)
+		goto close_p0;
+
+	c0 = xsocket(AF_VSOCK, SOCK_DGRAM, 0);
+	if (c0 < 0)
+		goto close_p0;
+
+	err = xconnect(c0, (struct sockaddr *)&addr, len);
+	if (err)
+		goto close_c0;
+
+	*sender = c0;
+	*receiver = p0;
+
+	return 0;
+
+close_c0:
+	close(c0);
+close_p0:
+	close(p0);
+	return -1;
+}
+
+static void vsock_redir_dgram(int sock_mapfd, int verd_mapfd, enum redir_mode mode)
+{
+	const char *log_prefix = redir_mode_str(mode);
+	char a = 'a', b = 'b';
+	int c0, p0, c1, p1;
+	unsigned int pass;
+	int err, n;
+	u32 key;
+
+	if (vsock_socketpair_dgram(&c0, &p0, 1111) < 0)
+		return;
+
+	if (vsock_socketpair_dgram(&c1, &p1, 2222) < 0)
+		goto close;
+
+	zero_verdict_count(verd_mapfd);
+
+	/* For ingress, map p1 ingress -> p0 ingress
+	 * For egress, map p1 ingress -> c0 egress (p0).
+	 */
+	if (mode == REDIR_INGRESS)
+		err = add_to_sockmap(sock_mapfd, p0, p1);
+	else
+		err = add_to_sockmap(sock_mapfd, c0, p1);
+
+	if (err) {
+		FAIL("add_to_sockmap failed");
+		return;
+	}
+
+	n = xsend(c1, &a, sizeof(a), 0);
+	if (n < 1) {
+		FAIL("send(c1) failed\n");
+		goto out;
+	}
+
+	n = recv(p0, &b, sizeof(b), MSG_DONTWAIT);
+	if (n < 0)
+		FAIL("%s: recv() err", log_prefix);
+	if (n == 0)
+		FAIL("%s: incomplete recv", log_prefix);
+
+	if (b != a)
+		FAIL("%s: vsock socket map failed, %c != %c", log_prefix, a, b);
+
+	key = SK_PASS;
+	err = xbpf_map_lookup_elem(verd_mapfd, &key, &pass);
+	if (err)
+		goto out;
+	if (pass != 1)
+		FAIL("%s: want pass count 1, have %d", log_prefix, pass);
+
+out:
+	key = 0;
+	bpf_map_delete_elem(sock_mapfd, &key);
+	key = 1;
+	bpf_map_delete_elem(sock_mapfd, &key);
+
+	xclose(c1);
+	xclose(p1);
+
+close:
+	xclose(c0);
+	xclose(p0);
+}
+
+static void vsock_skb_redir_dgram(struct test_sockmap_listen *skel,
+				  struct bpf_map *inner_map)
+{
+	int verdict = bpf_program__fd(skel->progs.prog_skb_verdict);
+	int verdict_map = bpf_map__fd(skel->maps.verdict_map);
+	int sock_map = bpf_map__fd(inner_map);
+	int err;
+
+	err = xbpf_prog_attach(verdict, sock_map, BPF_SK_SKB_VERDICT, 0);
+	if (err)
+		return;
+
+	skel->bss->test_ingress = false;
+	vsock_redir_dgram(sock_map, verdict_map, REDIR_EGRESS);
+	skel->bss->test_ingress = true;
+	vsock_redir_dgram(sock_map, verdict_map, REDIR_INGRESS);
+
+	xbpf_prog_detach2(verdict, sock_map, BPF_SK_SKB_VERDICT);
+}
+
+static void test_vsock_redir(struct test_sockmap_listen *skel, struct bpf_map *map)
+{
+	const char *family_name, *map_name;
+	char s[MAX_TEST_NAME];
+
+	family_name = family_str(AF_VSOCK);
+	map_name = map_type_str(map);
+	snprintf(s, sizeof(s), "%s %s %s", map_name, family_name, __func__);
+	if (!test__start_subtest(s))
+		return;
+
+	vsock_skb_redir_dgram(skel, map);
 }
 
 static void test_reuseport(struct test_sockmap_listen *skel,
@@ -2015,12 +2168,14 @@ void serial_test_sockmap_listen(void)
 	run_tests(skel, skel->maps.sock_map, AF_INET6);
 	test_unix_redir(skel, skel->maps.sock_map, SOCK_DGRAM);
 	test_unix_redir(skel, skel->maps.sock_map, SOCK_STREAM);
+	test_vsock_redir(skel, skel->maps.sock_map);
 
 	skel->bss->test_sockmap = false;
 	run_tests(skel, skel->maps.sock_hash, AF_INET);
 	run_tests(skel, skel->maps.sock_hash, AF_INET6);
 	test_unix_redir(skel, skel->maps.sock_hash, SOCK_DGRAM);
 	test_unix_redir(skel, skel->maps.sock_hash, SOCK_STREAM);
+	test_vsock_redir(skel, skel->maps.sock_hash);
 
 	test_sockmap_listen__destroy(skel);
 }
