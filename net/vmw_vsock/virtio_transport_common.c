@@ -1228,6 +1228,11 @@ virtio_transport_recv_connected(struct sock *sk,
 
 	if (le16_to_cpu(hdr->type) == VIRTIO_VSOCK_TYPE_DGRAM) {
 		virtio_transport_recv_enqueue(vsk, skb);
+		/* Because sockmap and vsock share skb->_skb_refdst
+		 * for maintaining flags, clear the flags before
+		 * calling sk->sk_data_ready(), which may invoke
+		 * sockmap's sk_data_ready().
+		 */
 		sk->sk_data_ready(sk);
 		return err;
 	}
@@ -1534,6 +1539,28 @@ int virtio_transport_purge_skbs(void *vsk, struct sk_buff_head *queue)
 	return cnt;
 }
 EXPORT_SYMBOL_GPL(virtio_transport_purge_skbs);
+
+int virtio_transport_read_skb(struct vsock_sock *vsk, skb_read_actor_t recv_actor)
+{
+	struct virtio_vsock_sock *vvs = vsk->trans;
+	struct sock *sk = sk_vsock(vsk);
+	struct sk_buff *skb;
+	int copied = 0;
+	int off = 0;
+	int err;
+
+	spin_lock_bh(&vvs->rx_lock);
+	skb = __skb_recv_datagram(sk, &vvs->rx_queue, MSG_DONTWAIT, &off, &err);
+	spin_unlock_bh(&vvs->rx_lock);
+
+	if (!skb)
+		return err;
+
+	copied = recv_actor(sk, skb);
+	kfree_skb(skb);
+	return copied;
+}
+EXPORT_SYMBOL_GPL(virtio_transport_read_skb);
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Asias He");
