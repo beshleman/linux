@@ -24,6 +24,8 @@
 #include "control.h"
 #include "util.h"
 
+#define MAX_RETRIES 5
+
 static void test_stream_connection_reset(const struct test_opts *opts)
 {
 	union {
@@ -926,6 +928,60 @@ static void test_dgram_loopback(const struct test_opts *opts)
 	close(recvfd);
 }
 
+static void test_stream_loopback(const struct test_opts *opts)
+{
+	union {
+		struct sockaddr sa;
+		struct sockaddr_vm svm;
+	} addr = {
+		.svm = {
+			.svm_family = AF_VSOCK,
+			.svm_port = 1234,
+			.svm_cid = VMADDR_CID_LOCAL,
+		},
+	};
+	int len = sizeof(addr.sa);
+	int sendfd, recvfd;
+	int retries;
+	int ret;
+
+	sendfd = socket(AF_VSOCK, SOCK_STREAM, 0);
+	if (sendfd < 0) {
+		perror("bind");
+		exit(EXIT_FAILURE);
+	}
+
+	recvfd = socket(AF_VSOCK, SOCK_STREAM | SOCK_NONBLOCK, 0);
+	if (recvfd < 0) {
+		perror("bind");
+		exit(EXIT_FAILURE);
+	}
+
+	ret = bind(recvfd, &addr.sa, sizeof(addr.svm));
+	if (ret < 0) {
+		perror("bind");
+		exit(EXIT_FAILURE);
+	}
+
+	ret = listen(recvfd, &addr.sa, sizeof(addr.svm));
+	if (ret < 0) {
+		perror("listen");
+		exit(EXIT_FAILURE);
+	}
+
+	retries = 0;
+	while ((ret = connect(sendfd, &addr.sa, sizeof(addr.svm))) < 0 &&
+		retries < MAX_RETRIES)
+		retries++;
+
+	if (retries == MAX_RETRIES) {
+		perror("listen");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("connect\n");
+}
+
 static struct test_case test_cases[] = {
 	{
 		.name = "SOCK_STREAM connection reset",
@@ -999,6 +1055,10 @@ static struct test_case test_cases[] = {
 	{
 		.name = "SOCK_DGRAM loopback",
 		.run_client = test_dgram_loopback,
+	},
+	{
+		.name = "SOCK_STREAM loopback",
+		.run_client = test_stream_loopback,
 	},
 	{},
 };
