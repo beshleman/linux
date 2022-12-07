@@ -145,14 +145,14 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		}
 
 		if (out) {
-			virtio_vsock_kfree_skb(skb);
+			kfree_skb(skb);
 			vq_err(vq, "Expected 0 output buffers, got %u\n", out);
 			break;
 		}
 
 		iov_len = iov_length(&vq->iov[out], in);
 		if (iov_len < sizeof(*hdr)) {
-			virtio_vsock_kfree_skb(skb);
+			kfree_skb(skb);
 			vq_err(vq, "Buffer len [%zu] too small\n", iov_len);
 			break;
 		}
@@ -194,14 +194,14 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 
 		nbytes = copy_to_iter(hdr, sizeof(*hdr), &iov_iter);
 		if (nbytes != sizeof(*hdr)) {
-			virtio_vsock_kfree_skb(skb);
+			kfree_skb(skb);
 			vq_err(vq, "Faulted on copying pkt hdr\n");
 			break;
 		}
 
 		nbytes = copy_to_iter(skb->data, payload_len, &iov_iter);
 		if (nbytes != payload_len) {
-			virtio_vsock_kfree_skb(skb);
+			kfree_skb(skb);
 			vq_err(vq, "Faulted on copying pkt buf\n");
 			break;
 		}
@@ -242,7 +242,7 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 					restart_tx = true;
 			}
 
-			virtio_vsock_consume_skb(skb);
+			consume_skb(skb);
 		}
 	} while(likely(!vhost_exceeds_weight(vq, ++pkts, total_len)));
 	if (added)
@@ -279,7 +279,7 @@ vhost_transport_send_pkt(struct sk_buff *skb)
 	vsock = vhost_vsock_get(le64_to_cpu(hdr->dst_cid));
 	if (!vsock) {
 		rcu_read_unlock();
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		return -ENODEV;
 	}
 
@@ -354,7 +354,7 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
 	if (nbytes != sizeof(*hdr)) {
 		vq_err(vq, "Expected %zu bytes for pkt->hdr, got %zu bytes\n",
 		       sizeof(*hdr), nbytes);
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		return NULL;
 	}
 
@@ -366,7 +366,7 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
 
 	/* The pkt is too big */
 	if (payload_len > VIRTIO_VSOCK_MAX_PKT_BUF_SIZE) {
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		return NULL;
 	}
 
@@ -376,7 +376,7 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
 	if (nbytes != payload_len) {
 		vq_err(vq, "Expected %zu byte payload, got %zu bytes\n",
 		       payload_len, nbytes);
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		return NULL;
 	}
 
@@ -524,7 +524,7 @@ static void vhost_vsock_handle_tx_kick(struct vhost_work *work)
 		    vhost_transport_get_local_cid())
 			virtio_transport_recv_pkt(&vhost_transport, skb);
 		else
-			virtio_vsock_kfree_skb(skb);
+			kfree_skb(skb);
 
 		vhost_add_used(vq, head, 0);
 		added = true;

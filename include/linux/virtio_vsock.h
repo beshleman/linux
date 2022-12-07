@@ -15,6 +15,13 @@ enum virtio_vsock_skb_flags {
 	VIRTIO_VSOCK_SKB_FLAGS_TAP_DELIVERED	= BIT(1),
 };
 
+struct virtio_vsock_skb_cb {
+	bool reply;
+	bool tap_delivered;
+};
+
+#define VIRTIO_VSOCK_SKB_CB(skb) ((struct virtio_vsock_skb_cb *)((skb)->cb))
+
 static inline struct virtio_vsock_hdr *virtio_vsock_hdr(struct sk_buff *skb)
 {
 	return (struct virtio_vsock_hdr *)skb->head;
@@ -22,27 +29,27 @@ static inline struct virtio_vsock_hdr *virtio_vsock_hdr(struct sk_buff *skb)
 
 static inline bool virtio_vsock_skb_reply(struct sk_buff *skb)
 {
-	return skb->_skb_refdst & VIRTIO_VSOCK_SKB_FLAGS_REPLY;
+	return VIRTIO_VSOCK_SKB_CB(skb)->reply;
 }
 
 static inline void virtio_vsock_skb_set_reply(struct sk_buff *skb)
 {
-	skb->_skb_refdst |= VIRTIO_VSOCK_SKB_FLAGS_REPLY;
+	VIRTIO_VSOCK_SKB_CB(skb)->reply = true;
 }
 
 static inline bool virtio_vsock_skb_tap_delivered(struct sk_buff *skb)
 {
-	return skb->_skb_refdst & VIRTIO_VSOCK_SKB_FLAGS_TAP_DELIVERED;
+	return VIRTIO_VSOCK_SKB_CB(skb)->tap_delivered;
 }
 
 static inline void virtio_vsock_skb_set_tap_delivered(struct sk_buff *skb)
 {
-	skb->_skb_refdst |= VIRTIO_VSOCK_SKB_FLAGS_TAP_DELIVERED;
+	VIRTIO_VSOCK_SKB_CB(skb)->tap_delivered = true;
 }
 
 static inline void virtio_vsock_skb_clear_tap_delivered(struct sk_buff *skb)
 {
-	skb->_skb_refdst &= ~VIRTIO_VSOCK_SKB_FLAGS_TAP_DELIVERED;
+	VIRTIO_VSOCK_SKB_CB(skb)->tap_delivered = false;
 }
 
 static inline void virtio_vsock_skb_rx_put(struct sk_buff *skb)
@@ -65,12 +72,6 @@ static inline struct sk_buff *virtio_vsock_alloc_skb(unsigned int size, gfp_t ma
 
 	skb_reserve(skb, VIRTIO_VSOCK_SKB_HEADROOM);
 	return skb;
-}
-
-static inline void virtio_vsock_kfree_skb(struct sk_buff *skb)
-{
-	skb->_skb_refdst = 0;
-	kfree_skb(skb);
 }
 
 static inline void
@@ -100,30 +101,16 @@ static inline struct sk_buff *virtio_vsock_skb_dequeue(struct sk_buff_head *list
 	return skb;
 }
 
-static inline void __virtio_vsock_skb_queue_purge(struct sk_buff_head *list)
-{
-	struct sk_buff *skb;
-
-	while ((skb = __skb_dequeue(list)) != NULL)
-		virtio_vsock_kfree_skb(skb);
-}
-
 static inline void virtio_vsock_skb_queue_purge(struct sk_buff_head *list)
 {
 	spin_lock_bh(&list->lock);
-	__virtio_vsock_skb_queue_purge(list);
+	__skb_queue_purge(list);
 	spin_unlock_bh(&list->lock);
 }
 
 static inline size_t virtio_vsock_skb_len(struct sk_buff *skb)
 {
 	return (size_t)(skb_end_pointer(skb) - skb->head);
-}
-
-static inline void virtio_vsock_consume_skb(struct sk_buff *skb)
-{
-	skb->_skb_refdst = 0;
-	consume_skb(skb);
 }
 
 #define VIRTIO_VSOCK_DEFAULT_RX_BUF_SIZE	(1024 * 4)

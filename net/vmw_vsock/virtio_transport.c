@@ -164,13 +164,13 @@ virtio_transport_send_pkt(struct sk_buff *skb)
 	rcu_read_lock();
 	vsock = rcu_dereference(the_virtio_vsock);
 	if (!vsock) {
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		len = -ENODEV;
 		goto out_rcu;
 	}
 
 	if (le64_to_cpu(hdr->dst_cid) == vsock->guest_cid) {
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		len = -ENODEV;
 		goto out_rcu;
 	}
@@ -238,7 +238,7 @@ static void virtio_vsock_rx_fill(struct virtio_vsock *vsock)
 		p = &pkt;
 		ret = virtqueue_add_sgs(vq, &p, 0, 1, skb, GFP_KERNEL);
 		if (ret < 0) {
-			virtio_vsock_kfree_skb(skb);
+			kfree_skb(skb);
 			break;
 		}
 
@@ -268,7 +268,7 @@ static void virtio_transport_tx_work(struct work_struct *work)
 
 		virtqueue_disable_cb(vq);
 		while ((skb = virtqueue_get_buf(vq, &len)) != NULL) {
-			virtio_vsock_consume_skb(skb);
+			consume_skb(skb);
 			added = true;
 		}
 	} while (!virtqueue_enable_cb(vq));
@@ -513,7 +513,7 @@ static void virtio_transport_rx_work(struct work_struct *work)
 			/* Drop short/long packets */
 			if (unlikely(len < sizeof(struct virtio_vsock_hdr) ||
 				     len > virtio_vsock_skb_len(skb))) {
-				virtio_vsock_kfree_skb(skb);
+				kfree_skb(skb);
 				continue;
 			}
 
@@ -601,12 +601,12 @@ static void virtio_vsock_vqs_del(struct virtio_vsock *vsock)
 
 	mutex_lock(&vsock->rx_lock);
 	while ((skb = virtqueue_detach_unused_buf(vsock->vqs[VSOCK_VQ_RX])))
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 	mutex_unlock(&vsock->rx_lock);
 
 	mutex_lock(&vsock->tx_lock);
 	while ((skb = virtqueue_detach_unused_buf(vsock->vqs[VSOCK_VQ_TX])))
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 	mutex_unlock(&vsock->tx_lock);
 
 	virtio_vsock_skb_queue_purge(&vsock->send_pkt_queue);

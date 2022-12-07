@@ -97,7 +97,7 @@ virtio_transport_alloc_skb(struct virtio_vsock_pkt_info *info,
 	return skb;
 
 out:
-	virtio_vsock_kfree_skb(skb);
+	kfree_skb(skb);
 	return NULL;
 }
 
@@ -389,7 +389,7 @@ virtio_transport_stream_do_dequeue(struct vsock_sock *vsk,
 
 		if (skb->len == 0) {
 			virtio_transport_dec_rx_pkt(vvs, skb);
-			virtio_vsock_consume_skb(skb);
+			consume_skb(skb);
 		} else {
 			__skb_queue_head(&vvs->rx_queue, skb);
 		}
@@ -485,7 +485,7 @@ static int virtio_transport_seqpacket_do_dequeue(struct vsock_sock *vsk,
 		}
 
 		virtio_transport_dec_rx_pkt(vvs, skb);
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 	}
 
 	spin_unlock_bh(&vvs->rx_lock);
@@ -862,7 +862,7 @@ static int virtio_transport_reset_no_sock(const struct virtio_transport *t,
 		return -ENOMEM;
 
 	if (!t) {
-		virtio_vsock_kfree_skb(reply);
+		kfree_skb(reply);
 		return -ENOTCONN;
 	}
 
@@ -1081,7 +1081,7 @@ virtio_transport_recv_enqueue(struct vsock_sock *vsk,
 out:
 	spin_unlock_bh(&vvs->rx_lock);
 	if (free_pkt)
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 }
 
 static int
@@ -1125,7 +1125,7 @@ virtio_transport_recv_connected(struct sock *sk,
 		break;
 	}
 
-	virtio_vsock_kfree_skb(skb);
+	kfree_skb(skb);
 	return err;
 }
 
@@ -1323,22 +1323,22 @@ void virtio_transport_recv_pkt(struct virtio_transport *t,
 	switch (sk->sk_state) {
 	case TCP_LISTEN:
 		virtio_transport_recv_listen(sk, skb, t);
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		break;
 	case TCP_SYN_SENT:
 		virtio_transport_recv_connecting(sk, skb);
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		break;
 	case TCP_ESTABLISHED:
 		virtio_transport_recv_connected(sk, skb);
 		break;
 	case TCP_CLOSING:
 		virtio_transport_recv_disconnecting(sk, skb);
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		break;
 	default:
 		(void)virtio_transport_reset_no_sock(t, skb);
-		virtio_vsock_kfree_skb(skb);
+		kfree_skb(skb);
 		break;
 	}
 
@@ -1351,7 +1351,7 @@ void virtio_transport_recv_pkt(struct virtio_transport *t,
 	return;
 
 free_pkt:
-	virtio_vsock_kfree_skb(skb);
+	kfree_skb(skb);
 }
 EXPORT_SYMBOL_GPL(virtio_transport_recv_pkt);
 
@@ -1382,7 +1382,7 @@ int virtio_transport_purge_skbs(void *vsk, struct sk_buff_head *queue)
 	}
 	spin_unlock_bh(&queue->lock);
 
-	__virtio_vsock_skb_queue_purge(&freeme);
+	__skb_queue_purge(&freeme);
 
 	return cnt;
 }
