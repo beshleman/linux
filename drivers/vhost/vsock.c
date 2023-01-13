@@ -364,7 +364,7 @@ vhost_vsock_alloc_skb(struct vhost_virtqueue *vq,
 
 	/* The pkt is too big or the length in the header is invalid */
 	if (payload_len > VIRTIO_VSOCK_MAX_PKT_BUF_SIZE ||
-	    payload_len > len) {
+	    payload_len + sizeof(*hdr) > len) {
 		kfree_skb(skb);
 		return NULL;
 	}
