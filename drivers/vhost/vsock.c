@@ -116,9 +116,7 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		size_t nbytes;
 		int head;
 
-		spin_lock_bh(&vsock->send_pkt_queue.lock);
-		skb = __skb_dequeue(&vsock->send_pkt_queue);
-		spin_unlock_bh(&vsock->send_pkt_queue.lock);
+		skb = virtio_vsock_skb_dequeue(&vsock->send_pkt_queue);
 
 		if (!skb) {
 			vhost_enable_notify(&vsock->dev, vq);
