@@ -227,4 +227,20 @@ int vsock_add_tap(struct vsock_tap *vt);
 int vsock_remove_tap(struct vsock_tap *vt);
 void vsock_deliver_tap(struct sk_buff *build_skb(void *opaque), void *opaque);
 
+typedef int (vsock_send_fn)(int (*fn)(struct sk_buff *), struct sk_buff *skb, u32 cid);
+extern vsock_send_fn *__vsock_send_pkt;
+
+static inline int
+vsock_send_pkt(int (*send_pkt)(struct sk_buff *), struct sk_buff *skb, u32 dst_cid)
+{
+#ifdef CONFIG_VSOCKETS_DEV
+	vsock_send_fn *fn;
+
+	fn = smp_load_acquire(&__vsock_send_pkt);
+	if (fn)
+		return fn(send_pkt, skb, dst_cid);
+#endif
+	return send_pkt(skb);
+}
+
 #endif /* __AF_VSOCK_H__ */
